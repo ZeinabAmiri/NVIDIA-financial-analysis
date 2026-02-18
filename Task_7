@@ -1,0 +1,224 @@
+#Ofek Ben Gordetski
+#libraries
+import pandas as pd
+import numpy as np
+import statsmodels.api as sm
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy.optimize import minimize
+from openpyxl.drawing.image import Image as XLImage
+import os
+
+def run_capm_analysis_with_cleanup(file_path):
+    #Load & Clean
+    df = pd.read_csv(file_path)
+    df['Date'] = pd.to_datetime(df['Date'])
+
+    #FLTR for dupes, YLD = BOND TR.PRICECLOSE = EQTY
+    df_filtered = df[
+        ((df['Ticker'] != 'US10YT=RR') & (df['Field'] == 'TR.PriceClose')) | 
+        ((df['Ticker'] == 'US10YT=RR') & (df['Field'] == 'Yield to Maturity'))
+    ]
+
+    #Repivoting
+    data = df_filtered.pivot(index='Date', columns='Ticker', values='Value').dropna()
+    
+    #Returns & excess returns
+    rf_raw = data['US10YT=RR']
+    prices = data.drop(columns=['US10YT=RR'])
+    
+    #% annl. change in stock prices in decimals
+    returns = prices.pct_change().dropna()
+    rf_monthly = (rf_raw / 100) / 12
+    #align rsr indx with indx returns (ensures rf_monthly has the same row labels = returns)
+    rf_monthly = rf_monthly.reindex(returns.index)
+
+    #proxy for market portfolio used to calculate market excess returns in CAPM regression
+    #QQQ since theyre all traded there and is a bit more interesting than S&P (i.e. voltality)
+    market_ticker = 'QQQ.O'
+    #contains data after removing qqq
+    stock_tickers = [col for col in returns.columns if col != market_ticker]
+
+    excess_market = returns[market_ticker] - rf_monthly
+    #using returns above the rfr - rf monthly = excess market returns
+    excess_stocks = pd.DataFrame({s: returns[s] - rf_monthly for s in stock_tickers})
+    #each column = stock excess returns aligned with market excesss returns
+    #loops all stock tckrs
+
+    #CAPM Regressions
+    results_list, residuals_dict, fitted_values_dict = [], {}, {}
+
+    #for each individual stock
+    for stock in stock_tickers:
+        #the dependent v. (excess returns of current stock)
+        Y = excess_stocks[stock]
+        #independent sm.add_constant adds alpha (intercept term)
+        X = sm.add_constant(excess_market)
+        model = sm.OLS(Y, X).fit()
+        #sm.OLS(Y, X) = ordinary least squares regression
+        #.fit = estimation of alpha and beta
+            #in short now the model contains r's residuals and p's (estimated coefficients)
+
+
+        #store the results
+        results_list.append({
+            'Stock': stock,
+                #Beta = slope coefficient of the regression
+                #model.params.iloc[1] = coefficient of excess_market
+                #Beta used to measure how sensitive the stock is to market movements
+            'Beta': model.params.iloc[1],
+                #Alpha = intercept term of the regression
+                #model.params.iloc[0] = constant term + by sm.add_constant
+                #Alpha = stock's performance +- what CAPM predicts
+            'Alpha': model.params.iloc[0],
+                #R-squared =  proportion of variance in stock's excess returns
+                #i.e. explained by the market's excess returns
+                #Higher R_squared = the market explains more of the stock's returns
+            'R_squared': model.rsquared,
+                #P_Value_Beta = whether Beta is statistically different 0
+                #P_Value_Beta (i.e. defined in this model < 0.05) = Beta is significant
+            'P_Value_Beta': model.pvalues.iloc[1],
+                #P_Value_Alpha = whether Alpha is statistically different 0
+                #P_Value_Alpha (i.e. defined in this model < 0.05) = significant abnormal returns
+            'P_Value_Alpha': model.pvalues.iloc[0]
+        })
+        #store residuals and fitted v. for x stock
+            #residuals_dict = actual excess stock return - p[redicted excess stock return
+        residuals_dict[stock] = model.resid
+        fitted_values_dict[stock] = model.fittedvalues
+        #model.fittedvalues has predicted values from regression
+            #Storing per stock allows plotting and comparing predicted vs actual returns for each
+
+    results_df = pd.DataFrame(results_list)
+
+    #expected returns & portfolio optimization
+    #calc avg market return & risk premium
+    avg_market_return = returns[market_ticker].mean()
+    #avg monthly return of the market
+    current_rf = rf_monthly.iloc[-1]
+    # - latest risk-free rate (most recent month)
+    mkt_premium = avg_market_return - current_rf
+    # - market risk premium extra return investors expect over risk-free
+
+    #calc expected return for stock using CAPM (expected return = rf + Beta * market premium)
+    expected_rets = {r['Stock']: current_rf + r['Beta'] * mkt_premium for _, r in results_df.iterrows()}
+    expected_rets_df = pd.DataFrame(list(expected_rets.items()), columns=['Stock', 'Expected_Monthly_Return'])
+    #con. results to DataFrame 4 easy export
+    
+
+    #calc covariance matrix & expected returns vector
+        #how stocks move together (for portfolio optimization)
+    cov_mat = returns[stock_tickers].cov()
+    #turn expected returns into a array
+    #easier for optimization formulas..
+    er_vec = np.array([expected_rets[s] for s in stock_tickers])
+
+
+    #calc negat. sharpe r (for optimization)
+    def neg_sharpe(w, er, cov, rf):
+        #portfolio return = weighted sum of expected returns
+        p_ret = np.dot(w, er)
+        #portfolio volatility = sqrt(w' * Cov * w)
+        p_vol = np.sqrt(np.dot(w.T, np.dot(cov, w)))
+        #negat. sharpe ratio = (return - rf) / volatility, for minimization
+        return -(p_ret - rf) / p_vol
+
+    #optimize portfolio weights to maximize sharpe r
+        #neg_sharpe function to minimize (negative Sharpe) 
+            #start with equal weights
+                #pass expected returns covariance, rf
+                    #equential least squares optimizer
+                        #weights between 0-1
+    opt = minimize(neg_sharpe, [1./len(stock_tickers)]*len(stock_tickers), 
+                   args=(er_vec, cov_mat, current_rf), method='SLSQP', 
+                   bounds=[(0,1)]*len(stock_tickers), constraints={'type':'eq','fun':lambda x: np.sum(x)-1})
+        # weights must sum = 1 (full investment)
+
+    weights_df = pd.DataFrame({'Stock': stock_tickers, 'Optimal_Weight': opt.x})
+
+    #charts & filenames data prepration
+    all_images = []
+    
+    #correlation heatmap
+    #returns.corr() computes pairwise correlations between all stocks
+    #sns.heatmap visualize the correlations nicely with colors & numbers
+    #plt.savefig saves the plot as an image file
+    # plt.close frees memory
+    # all_images keeps track of temporary files for later cleanu
+    corr_file = 'temp_correlation_matrix.png'
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(returns.corr(), annot=True, cmap='coolwarm', fmt=".2f")
+    plt.title('Correlation Matrix')
+    plt.savefig(corr_file)
+    plt.close()
+    all_images.append(corr_file)
+
+    reg_plots, res_plots = {}, {}
+    for s in stock_tickers:
+        #save regression plot
+        rf = f'temp_reg_{s.replace(".", "_")}.png'
+        reg_plots[s] = rf
+        all_images.append(rf)
+        plt.figure(figsize=(8, 6))
+        sns.regplot(x=excess_market, y=excess_stocks[s])
+        plt.title(f'CAPM Regression: {s}')
+        plt.savefig(rf)
+        plt.close()
+
+        #save residual plots
+        rsf = f'temp_res_{s.replace(".", "_")}.png'
+        res_plots[s] = rsf
+        all_images.append(rsf)
+        fig, ax = plt.subplots(1, 2, figsize=(12, 5))
+        ax[0].scatter(fitted_values_dict[s], residuals_dict[s])
+        ax[0].axhline(0, color='r', ls='--')
+        ax[0].set_title(f'Residuals vs Fitted: {s}')
+        sns.histplot(residuals_dict[s], kde=True, ax=ax[1])
+        ax[1].set_title(f'Residual Histogram: {s}')
+        plt.tight_layout()
+        plt.savefig(rsf)
+        plt.close()
+
+    #export to excel
+    xl_file = 'CAPM_Analysis_Final_Report.xlsx'
+    with pd.ExcelWriter(xl_file, engine='openpyxl') as writer:
+        results_df.to_excel(writer, sheet_name='Summary_Stats', index=False)
+        expected_rets_df.to_excel(writer, sheet_name='Portfolio_Returns', index=False)
+        weights_df.to_excel(writer, sheet_name='Optimal_Weights', index=False)
+        returns.corr().to_excel(writer, sheet_name='Correlation_Matrix')
+        cov_mat.to_excel(writer, sheet_name='Covariance_Matrix')
+        
+        wb = writer.book
+        
+        #regression charts sheet
+        ws_reg = wb.create_sheet('Regression_Charts')
+        ws_reg['A1'] = 'Correlation Heatmap'
+        ws_reg.add_image(XLImage(corr_file), 'A2')
+        #insert correlation heatmap at the top
+        for i, s in enumerate(stock_tickers):
+            row = 45 + (i * 35)
+            ws_reg[f'A{row}'] = f'CAPM Regression for {s}'
+            ws_reg.add_image(XLImage(reg_plots[s]), f'A{row+1}')
+            #for each stock add a title and its CAPM regression plot
+            #rows are spaced = no overlap
+
+        #residual chartssheet
+        ws_res = wb.create_sheet('Residual_Charts')
+        for i, s in enumerate(stock_tickers):
+            row = 1 + (i * 30)
+            ws_res[f'A{row}'] = f'Residual Analysis for {s}'
+            ws_res.add_image(XLImage(res_plots[s]), f'A{row+1}')
+            #for each stock add a title and its residual plot
+            #rows are spaced = no overlap
+
+    #delete tmp .pngs
+    for f in all_images:
+        if os.path.exists(f):
+            os.remove(f)
+            
+    print(f"Analysis complete. Report saved as: {xl_file}")
+
+#execution
+if __name__ == "__main__":
+    #file name
+    run_capm_analysis_with_cleanup('Dataset_ETF_STOCKS_10T_Final.csv')

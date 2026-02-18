@@ -1,0 +1,45 @@
+import pandas as pd
+import numpy as np
+ 
+# Load the CSV file
+df = pd.read_csv('nvidia_monthly_clean.csv')
+ 
+# Convert 'Date' to datetime (optional but good practice)
+df['Date'] = pd.to_datetime(df['Date'])
+ 
+# Calculate monthly returns from 'Price Close'
+# Formula: return = (P_t / P_{t-1}) - 1
+df['Daily_Returns'] = df['Price Close'].pct_change()
+ 
+# Remove the first row (NaN because there's no previous month)
+df = df.dropna().reset_index(drop=True)
+
+ 
+from scipy import stats
+import matplotlib.pyplot as plt
+import seaborn as sns
+ 
+mean_return = df['Daily_Returns'].mean()
+std_dev = df['Daily_Returns'].std()
+skewness = stats.skew(df['Daily_Returns'])
+kurtosis = stats.kurtosis(df['Daily_Returns'])
+ 
+plt.figure(figsize=(12, 7))
+sns.histplot(df['Daily_Returns'], bins=25, kde=True, color='#2E86AB', alpha=0.8, edgecolor='white')
+plt.axvline(mean_return, color='#A23B72', linestyle='--', linewidth=2.5, label=f'Mean: {mean_return:.4f}')
+plt.axvline(mean_return + std_dev, color='#F18F01', linestyle=':', linewidth=2, label=f'+1σ: {mean_return+std_dev:.4f}')
+plt.axvline(mean_return - std_dev, color='#F18F01', linestyle=':', linewidth=2, label=f'-1σ: {mean_return-std_dev:.4f}')
+ 
+plt.title('Frequency Distribution of Monthly NVIDIA Returns', fontsize=16, fontweight='bold', pad=20)
+plt.xlabel('Monthly Return', fontsize=14)
+plt.ylabel('Frequency', fontsize=14)
+plt.gca().xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x*100:.1f}%'))
+plt.grid(True, linestyle='--', alpha=0.7)
+plt.legend(loc='upper right', frameon=True, facecolor='white', framealpha=1, fontsize=10)
+ 
+stats_text = f'Mean: {mean_return:.4f}\nStd Dev: {std_dev:.4f}\nSkewness: {skewness:.2f}\nKurtosis: {kurtosis:.2f}'
+plt.annotate(stats_text, xy=(0.03, 0.88), xycoords='axes fraction',
+             bbox=dict(boxstyle="round,pad=0.5", fc="white", ec="#8B9DC3", alpha=0.9), fontsize=11)
+ 
+plt.tight_layout()
+plt.show()

@@ -1,0 +1,221 @@
+# Descriptive Statistics in R
+# This script follows the provided template structure and applies it to NVIDIA monthly close prices.
+# QQ plot analysis and historical Value at Risk with a graph are added as required by the assignment.
+
+# Step 0: Load libraries
+# These libraries are needed to read data, manipulate variables, and create plots.
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+# Step 1: Load the dataset and inspect it
+# This confirms that the data were imported correctly and shows structure and variable types.
+dataPath <- "/Users/rominabatebi/Desktop/FH& Advanced ML /FH/Statistical Analysis of Financial and Econometric Data - ILV/nvidia_monthly_clean.csv"
+nvdaRaw <- readr::read_csv(dataPath, show_col_types = FALSE)
+
+head(nvdaRaw)
+str(nvdaRaw)
+
+# Step 2: Prepare the data for analysis
+# Column names and data types are standardized so that statistical functions work correctly.
+nvda <- nvdaRaw %>%
+  rename(
+    date = Date,
+    instrument = Instrument,
+    price = `Price Close`
+  ) %>%
+  mutate(
+    date = as.Date(date),
+    instrument = as.character(instrument),
+    price = as.numeric(price)
+  ) %>%
+  arrange(date)
+
+# Step 3: Descriptive statistics on price
+# These statistics describe the central tendency and dispersion of the price level.
+
+mean(nvda$price)
+mean(nvda$price, na.rm = TRUE)
+mean(nvda$price, trim = 0.10)
+
+max(nvda$price, na.rm = TRUE)
+min(nvda$price, na.rm = TRUE)
+
+rng <- range(nvda$price, na.rm = TRUE)
+rng
+
+range2 <- function(x) {
+  max(x, na.rm = TRUE) - min(x, na.rm = TRUE)
+}
+range2(nvda$price)
+
+median(nvda$price, na.rm = TRUE)
+quantile(nvda$price, 0.5, na.rm = TRUE)
+
+quantile(nvda$price, 0.25, na.rm = TRUE)
+quantile(nvda$price, 0.75, na.rm = TRUE)
+
+IQR(nvda$price, na.rm = TRUE)
+quantile(nvda$price, 0.75, na.rm = TRUE) - quantile(nvda$price, 0.25, na.rm = TRUE)
+
+# Step 4: Sample size and variance
+# The sample size shows how many observations support the analysis and variance measures dispersion.
+
+nrow(nvda)
+table(nvda$instrument)
+
+var(nvda$price, na.rm = TRUE)
+
+# Clean table for price descriptive statistics
+priceTable <- data.frame(
+  Statistic = c(
+    "Mean",
+    "Mean NA removed",
+    "Trimmed mean 10 percent",
+    "Minimum",
+    "Maximum",
+    "Range",
+    "Median",
+    "First quartile",
+    "Third quartile",
+    "Interquartile range",
+    "Variance",
+    "Sample size"
+  ),
+  Value = c(
+    mean(nvda$price),
+    mean(nvda$price, na.rm = TRUE),
+    mean(nvda$price, trim = 0.10),
+    min(nvda$price, na.rm = TRUE),
+    max(nvda$price, na.rm = TRUE),
+    range2(nvda$price),
+    median(nvda$price, na.rm = TRUE),
+    quantile(nvda$price, 0.25, na.rm = TRUE),
+    quantile(nvda$price, 0.75, na.rm = TRUE),
+    IQR(nvda$price, na.rm = TRUE),
+    var(nvda$price, na.rm = TRUE),
+    nrow(nvda)
+  )
+)
+
+priceTable
+
+# Step 5: Histograms
+# Histograms visualize the distribution of prices and reveal skewness.
+
+hist(nvda$price)
+
+hist(
+  nvda$price,
+  xlab = "Price",
+  ylab = "Frequency",
+  breaks = c(0, 5, 20, 50, 100, 300)
+)
+
+# Step 6: Group prices into intervals and compute frequencies
+# Grouping shows how often prices fall into predefined ranges.
+
+prices <- nvda$price
+
+priceGroups <- cut(
+  prices,
+  breaks = c(0, 5, 20, 50, 100, 300),
+  labels = c("up to 5", "up to 20", "up to 50", "up to 100", "more than 100")
+)
+
+table(priceGroups)
+
+priceGroupTable <- data.frame(
+  PriceGroup = names(table(priceGroups)),
+  Frequency = as.numeric(table(priceGroups))
+)
+
+priceGroupTable
+
+barplot(table(priceGroups))
+# Step 7: Compute monthly log returns
+# Returns are used instead of prices because risk measures are defined on relative changes.
+
+nvda <- nvda %>%
+  mutate(
+    logReturn = log(price / dplyr::lag(price))
+  )
+
+nvReturns <- nvda %>% filter(!is.na(logReturn))
+
+# Clean table for return descriptive statistics
+returnTable <- data.frame(
+  Statistic = c(
+    "Mean",
+    "Standard deviation",
+    "Minimum",
+    "Maximum",
+    "Median",
+    "First quartile",
+    "Third quartile",
+    "Interquartile range",
+    "Sample size"
+  ),
+  Value = c(
+    mean(nvReturns$logReturn),
+    sd(nvReturns$logReturn),
+    min(nvReturns$logReturn),
+    max(nvReturns$logReturn),
+    median(nvReturns$logReturn),
+    quantile(nvReturns$logReturn, 0.25),
+    quantile(nvReturns$logReturn, 0.75),
+    IQR(nvReturns$logReturn),
+    nrow(nvReturns)
+  )
+)
+
+returnTable
+
+# Step 8: QQ plot analysis
+# The QQ plot compares empirical returns to a normal distribution and highlights tail behavior.
+
+qqnorm(nvReturns$logReturn, main = "QQ plot of monthly log returns")
+qqline(nvReturns$logReturn)
+
+# Step 9: Value at Risk calculation
+# Historical VaR estimates loss thresholds from the lower tail of the return distribution.
+
+alpha95 <- 0.95
+alpha99 <- 0.99
+
+q95 <- quantile(nvReturns$logReturn, probs = 1 - alpha95)
+q99 <- quantile(nvReturns$logReturn, probs = 1 - alpha99)
+
+VaR95 <- -as.numeric(q95)
+VaR99 <- -as.numeric(q99)
+
+VaR95
+VaR99
+
+# Step 10: Value at Risk results table
+# This table summarizes the VaR values at different confidence levels.
+
+varTable <- data.frame(
+  ConfidenceLevel = c("95 percent", "99 percent"),
+  VaR = c(VaR95, VaR99)
+)
+
+varTable
+
+# Step 11: Value at Risk histogram
+# The histogram shows the return distribution and marks the VaR thresholds visually.
+
+ggplot(nvReturns, aes(x = logReturn)) +
+  geom_histogram(bins = 30) +
+  geom_vline(xintercept = -VaR95, linetype = "dashed") +
+  geom_vline(xintercept = -VaR99, linetype = "dashed") +
+  labs(
+    title = "Monthly log returns with Value at Risk thresholds",
+    subtitle = paste(
+      "VaR 95 percent =", round(VaR95, 3),
+      " VaR 99 percent =", round(VaR99, 3)
+    ),
+    x = "Log return",
+    y = "Frequency"
+  )
+

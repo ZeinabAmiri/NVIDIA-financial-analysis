@@ -1,0 +1,78 @@
+import refinitiv.data as rd
+import pandas as pd
+
+#Open Sess.
+rd.open_session()
+
+#PARA
+start_date = "2021-01-01"
+end_date = "2025-12-31"
+frequency = "M"
+
+#ETF & Equities
+equities = [
+    "QQQ.O", "NVDA.O", "PLTR.O",
+    "TSLA.O", "AMZN.O", "AMD.O", "AAPL.O"
+]
+
+output_file = "Dataset_ETF_STOCKS_10T_Final.csv"
+
+#Function to dowload EQUITY&ETF
+equity_df = rd.get_history(
+    universe=equities,
+    fields=["TR.PriceClose"],
+    parameters={
+        "SDate": start_date,
+        "EDate": end_date,
+        "Frq": frequency
+    }
+)
+
+equity_df = equity_df.reset_index()
+
+equity_long = equity_df.melt(
+    id_vars="Date",
+    var_name="Ticker",
+    value_name="Value"
+)
+#Drop fields
+equity_long["Field"] = "TR.PriceClose"
+equity_long = equity_long.dropna()
+equity_long = equity_long[["Date", "Ticker", "Field", "Value"]]
+
+#Function to dowload 10YT
+ust_df = rd.get_history(
+    universe=["US10YT=RR"],
+    fields=[
+        "TR.MIDPRICE",
+        "TR.YIELDTOMATURITY"
+    ],
+    parameters={
+        "SDate": start_date,
+        "EDate": end_date,
+        "Frq": frequency
+    }
+)
+
+ust_df = ust_df.reset_index()
+
+ust_long = ust_df.melt(
+    id_vars="Date",
+    var_name="Field",
+    value_name="Value"
+)
+
+ust_long["Ticker"] = "US10YT=RR"
+ust_long = ust_long.dropna()
+ust_long = ust_long[["Date", "Ticker", "Field", "Value"]]
+
+#Combine
+final_df = pd.concat(
+    [equity_long, ust_long],
+    ignore_index=True
+)
+
+
+final_df.to_csv(output_file, index=False)
+
+ 

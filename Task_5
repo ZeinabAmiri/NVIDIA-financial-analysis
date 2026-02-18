@@ -1,0 +1,36 @@
+# Import  Libraries
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Load data from LSEG
+STOCK = pd.read_csv("/dataset_multistock_final.csv")
+
+# Load Column with Close Price
+financial_data = STOCK["Close"].dropna().values
+
+# Calculate values for Bloxplot
+minimum = np.min(financial_data)
+q1 = np.percentile(financial_data, 25)
+median = np.percentile(financial_data, 50)
+q3 = np.percentile(financial_data, 75)
+maximum = np.max(financial_data)
+
+# Adjust Boxplot for our Needs
+plt.boxplot(financial_data, whis=(0, 100))
+
+# Add variable for common alignment & Prepare texts
+x_pos = 1.1
+
+plt.text(x_pos, minimum, f"Min: {minimum:.1f}")
+plt.text(x_pos, q1, f"Q1: {q1:.1f}", va='center')
+plt.text(x_pos, median, f"Median: {median:.1f}")
+plt.text(x_pos, q3, f"Q3: {q3:.1f}")
+plt.text(x_pos, maximum, f"Max: {maximum:.1f}")
+
+# Labels & title
+plt.title("STOCKS Monthly Close Price – Boxplot 2021 - 2025")
+plt.ylabel("Price")
+plt.xticks([1], ["STOCKS"])
+
+plt.show()

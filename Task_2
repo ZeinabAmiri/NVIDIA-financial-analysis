@@ -1,0 +1,36 @@
+# Ticker and field selection
+TICKER = "AMZN.O"
+FIELD = "TR.PRICECLOSE"
+
+# Check that CSV can be read properly
+df = pd.read_csv("/Dataset_ETF_STOCKS_10T_Final.csv")
+
+# Clean string columns for reliable filtering
+df["Ticker"] = df["Ticker"].astype(str).str.strip().str.upper()
+df["Field"]  = df["Field"].astype(str).str.strip().str.upper()
+
+# Filter by ticker and field
+df = df[(df["Ticker"] == TICKER.upper()) & (df["Field"] == FIELD)].copy()
+
+# Round prices to nearest tens (otherwise too much data in the table - difficult to identify patterns)
+df["PriceRounded"] = df["Value"].round(-1)
+
+# Absolute frequency (fj)
+freq_table = df["PriceRounded"].value_counts().sort_index().reset_index()
+freq_table.columns = ["xj", "fj"]
+
+# Relative frequency (rj)
+freq_table["rj"] = freq_table["fj"] / freq_table["fj"].sum() * 100
+
+# Cumulative relative frequency
+freq_table["cumulative_rj"] = freq_table["rj"].cumsum()
+
+# Format percentages
+freq_table["rj"] = freq_table["rj"].round(2).astype(str) + "%"
+freq_table["cumulative_rj"] = freq_table["cumulative_rj"].round(2).astype(str) + "%"
+
+# Add ticker header column
+freq_table.insert(0, "Ticker", TICKER)
+
+# Print summary table
+print(freq_table)

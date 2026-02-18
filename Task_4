@@ -1,0 +1,120 @@
+# %%
+# 4. Analysis of the Skewness and Kurtosis
+
+# 4.1. Preparation before calculations
+
+# 4.1.1. Import the libraries needed
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import skew, kurtosis, norm
+from matplotlib.lines import Line2D
+
+# 4.1.2. Load data from .csv and format into the correct data types
+df = pd.read_csv("dataset_multistock_final_statistics.csv")
+df["Date"] = pd.to_datetime(df["Date"])
+df["Close"] = pd.to_numeric(df["Close"])
+
+# 4.1.3. Sort by ticker and date
+df = df.sort_values(["Ticker", "Date"])
+
+# Repeat the below for each ticker
+for ticker in df["Ticker"].unique():
+
+    # 4.2. Keep only the data of the current ticker
+    df_ticker = df[df["Ticker"] == ticker].copy()
+
+    # 4.3. Calculate the percentage returns
+    df_ticker["Return_pct"] = (df_ticker["Close"] / df_ticker["Close"].shift(1) - 1) * 100
+    returns = df_ticker["Return_pct"].dropna().values
+
+    # 4.4. Compare the Returns vs Normal Distribution
+
+
+    # 4.4.1. Calculate the Mean, sample Standard Deviation, Skewness and Kurtosis of the Returns
+    ret_mean = np.mean(returns) # Calculate the mean of the returns
+    ret_std = np.std(returns, ddof=1) # Calculate the standard deviation of the sample of returns
+    ret_skewness = skew(returns)
+    ret_kurtosis = kurtosis(returns, fisher=True) # Fisher definition defines the kurtosis of the normal distribution as 0
+
+    # 4.4.2. Print the numerical results of Skewness and Kurtosis
+    table = pd.DataFrame({
+        "Distribution": [
+            f"Returns (%) — {ticker}",
+            "Normal Distribution"
+        ],
+        "Skewness": [
+            round(ret_skewness, 2),
+            0
+        ],
+        "Kurtosis": [
+            round(ret_kurtosis, 2),
+            0
+        ]
+    })
+
+    print(table.to_string(index=False))
+
+    #4.4.2.1. Print the analysis of the Skewness and Kurtosis
+    if round(ret_skewness, 2) < 0:
+        print("The distribution of returns is negatively skewed.")
+    elif round(ret_skewness, 2) > 0:
+        print("The distribution of returns is positively skewed.")
+    else:
+        print("The distribution of returns is symmetric.")
+
+    if round(ret_kurtosis, 2) < 0:
+        print("The distribution of returns has a platykurtic shape (less fat-tailed than normal).")
+    elif round(ret_kurtosis, 2) > 0:
+        print("The distribution of returns has a leptokurtic shape (more fat-tailed than normal).")
+    else:
+        print("The distribution of returns has a mesokurtic shape (similar to normal).")
+
+    # 4.4.3. Define the figure dimensions
+    plt.figure(figsize=(10, 6))
+
+    # 4.4.4. Plot the histogram of the empirical returns
+    plt.hist(returns,
+            bins="auto", # automatically calculates the number of bins
+            density=True, 
+            alpha=0.6, # transparency of the bars
+            color="blue",
+            label="Percentage Returns"
+    )
+    
+    # 4.4.5. Plot the normal distribution on top
+    x_values = np.linspace(np.min(returns), np.max(returns), 500) # equally spaced sequence starting in the from the minimum value of the returns until the maximum value of the returns
+    plt.plot(
+        x_values,
+        norm.pdf(x_values, ret_mean, ret_std), # probability density function (pdf) of the normal distribution with the same mean and standard deviation as the returns
+        color="orange",
+        lw=3,
+        label="Normal Distribution"
+    )
+
+    # 4.5.4. Plot vertical lines marking the mean and median of the returns
+    plt.axvline(ret_mean, color="black", linestyle="--", linewidth=2, label="Mean")
+    plt.axvline(np.median(returns), color="red", linestyle=":", linewidth=2, label="Median")
+
+    # 4.5.5. Add appropriate title based on ticker, labels and format the plot
+    plt.title(f"Returns vs Normal Distribution — {ticker}")
+    plt.xlabel("Return (%)")
+    plt.ylabel("Relative Frequency")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+
+    # 4.5.6. Save the figure with the appropriate name based on the ticker
+    plt.savefig(f"pct_returns_vs_normal_{ticker}.png", dpi=300)
+
+    # 4.5.7. Show the figure
+    plt.show()
+    plt.close()
+
+    # Horizontal line to separate the results of each ticker
+    print("-" * 50)
+
+
+
+
+
