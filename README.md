@@ -1,6 +1,6 @@
 -1/27/2026-
 
-M.SFDT.B.25.WS25 Statistical Analysis of Financial and Econometric Data ILV - 1
+M.SFDT.B.25.WS25 Statistical Analysis of Financial and Econometric Data 
 
 Handed to - Prof. Karl Krycha
 
